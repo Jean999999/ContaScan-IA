@@ -341,10 +341,25 @@ function validateAiReceipt(receipt) {
 }
 
 function geminiText(data) {
-  return data?.candidates?.[0]?.content?.parts
-    ?.map(part => part.text || "")
+  const parts = data?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return "";
+
+  // Gemini 3 puede devolver resúmenes de razonamiento en partes con thought=true.
+  // Esas partes son internas y no deben mostrarse en ContaBot ni usarse como JSON.
+  return parts
+    .filter(part => part && part.thought !== true && typeof part.text === "string")
+    .map(part => part.text)
     .join("")
-    .trim() || "";
+    .trim();
+}
+
+function isInvalidChatAnswer(text) {
+  const value = String(text || "").trim();
+  if (!value) return true;
+
+  // Evita mostrar fragmentos de planificación interna si un modelo los devuelve
+  // sin marcar correctamente como thought.
+  return /(?:words? limit|drafting the text|chain of thought|internal reasoning|reasoning process)/i.test(value);
 }
 
 async function callGeminiReceiptModel({ model, apiKey, images, pdfText = "" }) {
@@ -419,7 +434,7 @@ ${pdfText ? `8. Texto extraído del PDF para apoyo:\n${pdfText.slice(0, 12000)}`
   }
 
   const endpoint =
-    `https://generativelanguage.googleapis.com/v1/models/${encodeURIComponent(model)}:generateContent`;
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 90000);
@@ -528,20 +543,18 @@ async function getGeminiCandidates(apiKey) {
 
   // Respaldo actual. El modelo configurado siempre se intenta primero.
   return rankGeminiModels([
-    "gemini-3.6-flash",
-    "gemini-3.5-flash-lite",
     "gemini-3.5-flash",
-    "gemini-3.1-flash-lite"
+    "gemini-3.1-flash-lite-preview"
   ], configured);
 }
 
-async function extractReceiptWithVision({ originalPath, originalMimeType, enhancedPaths, pdfText = "" }) {
+async function extractReceiptWithVision({ originalPath, enhancedPaths, pdfText = "" }) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
 
   const candidates = await getGeminiCandidates(apiKey);
   const images = [
-    { path: originalPath, mimeType: originalMimeType || "image/png" },
+    { path: originalPath, mimeType: "image/png" },
     ...enhancedPaths.slice(0, 1).map(file => ({ path: file, mimeType: "image/png" }))
   ];
 
@@ -573,7 +586,6 @@ app.post("/api/scan", upload.single("document"), async (req, res) => {
       try {
         const aiResult = await extractReceiptWithVision({
           originalPath: req.file.path,
-          originalMimeType: req.file.mimetype,
           enhancedPaths: variants,
           pdfText
         });
@@ -740,7 +752,7 @@ ${question}
     for (const model of candidates.slice(0, 6)) {
       try {
         const endpoint =
-          `https://generativelanguage.googleapis.com/v1/models/${encodeURIComponent(model)}:generateContent`;
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
         const response = await fetch(endpoint, {
           method: "POST",
           headers: {
@@ -749,17 +761,28 @@ ${question}
           },
           body: JSON.stringify({
             contents: [{ role: "user", parts: [{ text: instructions }] }],
-            generationConfig: { temperature: 0.3, maxOutputTokens: 500 }
+            generationConfig: {
+              maxOutputTokens: 500,
+              responseMimeType: "text/plain",
+              thinkingConfig: {
+                thinkingLevel: "LOW",
+                includeThoughts: false
+              }
+            }
           })
         });
 
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data?.error?.message || `Estado ${response.status}`);
         const answer = geminiText(data);
+        if (isInvalidChatAnswer(answer)) {
+          throw new Error("El modelo no devolvió una respuesta visible válida.");
+        }
+
         return res.json({
           ok: true,
           model,
-          answer: answer || "No pude generar una respuesta en este momento."
+          answer
         });
       } catch (error) {
         errors.push(`${model}: ${error.message}`);
@@ -796,7 +819,7 @@ app.get("/api/gemini-test", async (_req, res) => {
     for (const model of candidates.slice(0, 8)) {
       try {
         const endpoint =
-          `https://generativelanguage.googleapis.com/v1/models/${encodeURIComponent(model)}:generateContent`;
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
         const response = await fetch(endpoint, {
           method: "POST",
           headers: {
@@ -805,15 +828,25 @@ app.get("/api/gemini-test", async (_req, res) => {
           },
           body: JSON.stringify({
             contents: [{ parts: [{ text: "Responde solamente: CONEXION_OK" }] }],
-            generationConfig: { temperature: 0, maxOutputTokens: 20 }
+            generationConfig: {
+              maxOutputTokens: 30,
+              responseMimeType: "text/plain",
+              thinkingConfig: {
+                thinkingLevel: "MINIMAL",
+                includeThoughts: false
+              }
+            }
           })
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data?.error?.message || `Estado ${response.status}`);
+        const answer = geminiText(data);
+        if (!answer) throw new Error("El modelo respondió sin texto visible.");
+
         return res.json({
           ok: true,
           model,
-          answer: geminiText(data),
+          answer,
           automaticSelection: true,
           availableCandidates: candidates.slice(0, 8)
         });
