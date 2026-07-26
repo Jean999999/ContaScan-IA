@@ -1,0 +1,215 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ContaScan IA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="logo-wrap">
+      <div class="logo-mark">
+        <span></span><span></span><span></span>
+      </div>
+      <div>
+        <h1>ContaScan IA</h1>
+        <p>Contabilidad inteligente</p>
+      </div>
+    </div>
+
+    <nav>
+      <button class="nav active" data-view="dashboard"><span>◫</span>Panel principal</button>
+      <button class="nav" data-view="scanner"><span>⌁</span>Escanear comprobante</button>
+      <button class="nav" data-view="documents"><span>▤</span>Comprobantes</button>
+      <button class="nav" data-view="entries"><span>≡</span>Asientos contables</button>
+      <button class="nav" data-view="exports"><span>⇩</span>Exportaciones</button>
+    </nav>
+
+    <div class="sidebar-bottom">
+      <div class="mini-card">
+        <span class="online"></span>
+        <div><strong>Motor OCR activo</strong><small>Lectura inteligente disponible</small></div>
+      </div>
+    </div>
+  </aside>
+
+  <main>
+    <header>
+      <div>
+        <span class="overline">AUTOMATIZACIÓN CONTABLE</span>
+        <h2 id="viewTitle">Panel principal</h2>
+      </div>
+      <div class="header-right">
+        <div class="chip">🇵🇪 PCGE Perú</div>
+        <div class="avatar">JC</div>
+      </div>
+    </header>
+
+    <section class="view active" id="dashboard">
+      <div class="hero">
+        <div class="hero-copy">
+          <span class="hero-badge">IA PARA COMPROBANTES PERUANOS</span>
+          <h3>Menos digitación. Más control contable.</h3>
+          <p>Escanea facturas y boletas, detecta datos importantes y genera una propuesta de asiento contable en segundos.</p>
+          <div class="hero-actions">
+            <button class="btn primary" data-go="scanner">Escanear ahora</button>
+            <button class="btn ghost" data-go="documents">Ver registros</button>
+          </div>
+        </div>
+        <div class="hero-visual">
+          <div class="floating-card receipt">
+            <div class="receipt-top"><span></span><b>FACTURA</b></div>
+            <div class="line w80"></div><div class="line w60"></div><div class="line w90"></div>
+            <div class="amount">S/ 1,180.00</div>
+          </div>
+          <div class="ai-ring"><div>IA</div></div>
+          <div class="floating-card result">
+            <span>✓ Datos extraídos</span>
+            <strong>RUC · Fecha · IGV · Total</strong>
+            <small>Asiento listo para revisar</small>
+          </div>
+        </div>
+      </div>
+
+      <div class="metric-grid">
+        <article><div class="metric-icon blue">▤</div><div><span>Comprobantes</span><strong id="metricDocs">0</strong></div></article>
+        <article><div class="metric-icon purple">≡</div><div><span>Asientos generados</span><strong id="metricEntries">0</strong></div></article>
+        <article><div class="metric-icon orange">!</div><div><span>Duplicados</span><strong id="metricDup">0</strong></div></article>
+        <article><div class="metric-icon green">⌛</div><div><span>Tiempo ahorrado</span><strong id="metricTime">0 min</strong></div></article>
+      </div>
+
+      <div class="content-grid">
+        <article class="card">
+          <div class="card-head"><div><span class="overline">FLUJO DE TRABAJO</span><h4>Proceso inteligente</h4></div></div>
+          <div class="workflow">
+            <div><b>1</b><span><strong>Carga</strong><small>Sube una foto del comprobante</small></span></div>
+            <div><b>2</b><span><strong>Lectura OCR</strong><small>La IA reconoce el contenido</small></span></div>
+            <div><b>3</b><span><strong>Validación</strong><small>Revisa datos y duplicados</small></span></div>
+            <div><b>4</b><span><strong>Contabilización</strong><small>Genera el asiento referencial</small></span></div>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card-head"><div><span class="overline">ACTIVIDAD</span><h4>Últimos comprobantes</h4></div></div>
+          <div id="recentDocs" class="empty-state">Todavía no hay documentos procesados.</div>
+        </article>
+      </div>
+    </section>
+
+    <section class="view" id="scanner">
+      <div class="scanner-grid">
+        <article class="card upload-card">
+          <span class="step-label">PASO 1</span>
+          <h3>Carga tu comprobante</h3>
+          <p>Usa una imagen clara y completa para mejorar la lectura.</p>
+
+          <label class="dropzone" id="dropzone">
+            <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp">
+            <div class="upload-icon">↑</div>
+            <strong>Arrastra tu archivo aquí</strong>
+            <span>o haz clic para seleccionarlo</span>
+            <small>JPG, PNG o WEBP · Máximo 12 MB</small>
+          </label>
+
+          <div id="selectedFile" class="selected-file hidden">
+            <div><strong id="selectedName"></strong><small id="selectedSize"></small></div>
+            <button id="removeFile">×</button>
+          </div>
+
+          <button id="scanBtn" class="btn primary full" disabled>Leer con IA</button>
+          <div class="safe-note">🔒 El archivo se elimina del servidor después de procesarlo.</div>
+        </article>
+
+        <article class="card preview-card">
+          <div class="card-head"><div><span class="overline">VISTA PREVIA</span><h4>Documento seleccionado</h4></div></div>
+          <div id="previewArea" class="preview-placeholder">
+            <div>▧</div>
+            <p>La imagen aparecerá aquí.</p>
+          </div>
+          <div id="progressBox" class="progress-box hidden">
+            <div class="progress-track"><div id="progressBar"></div></div>
+            <span id="progressText">Preparando reconocimiento...</span>
+          </div>
+        </article>
+      </div>
+
+      <article id="resultCard" class="card result-card hidden">
+        <div class="card-head">
+          <div><span class="step-label">PASO 2</span><h3>Datos reconocidos</h3></div>
+          <div id="confidenceBadge" class="confidence">IA procesada</div>
+        </div>
+
+        <div class="form-grid">
+          <label>Tipo de comprobante<select id="type"><option>Factura</option><option>Boleta de venta</option><option>Recibo por honorarios</option><option>Otro</option></select></label>
+          <label>RUC del emisor<input id="ruc" maxlength="11"></label>
+          <label>Razón social<input id="businessName"></label>
+          <label>Fecha de emisión<input id="issueDate" type="date"></label>
+          <label>Serie<input id="series"></label>
+          <label>Número<input id="number"></label>
+          <label>Moneda<select id="currency"><option value="PEN">Soles (PEN)</option><option value="USD">Dólares (USD)</option></select></label>
+          <label>Base imponible<input id="subtotal" type="number" step="0.01"></label>
+          <label>IGV<input id="igv" type="number" step="0.01"></label>
+          <label>Total<input id="total" type="number" step="0.01"></label>
+          <label class="span-2">Clasificación contable<select id="category">
+            <option value="601">601 - Mercaderías</option>
+            <option value="603">603 - Materiales auxiliares</option>
+            <option value="631">631 - Transporte y gastos de viaje</option>
+            <option value="632">632 - Asesoría y consultoría</option>
+            <option value="635">635 - Alquileres</option>
+            <option value="636">636 - Servicios básicos</option>
+            <option value="639">639 - Otros servicios de terceros</option>
+            <option value="659">659 - Otros gastos de gestión</option>
+            <option value="33">33 - Propiedad, planta y equipo</option>
+          </select></label>
+        </div>
+
+        <div id="duplicateAlert" class="alert warning hidden">⚠ Este comprobante ya fue registrado anteriormente.</div>
+        <div class="validation-row">
+          <div><strong>Validación SUNAT</strong><span>La consulta automática requiere una integración autorizada.</span></div>
+          <button id="sunatBtn" class="btn secondary">Consultar RUC</button>
+        </div>
+        <div class="action-row">
+          <button id="saveBtn" class="btn primary">Guardar y generar asiento</button>
+          <button id="resetBtn" class="btn secondary">Limpiar</button>
+        </div>
+      </article>
+    </section>
+
+    <section class="view" id="documents">
+      <article class="card">
+        <div class="card-head">
+          <div><span class="overline">REGISTRO DIGITAL</span><h3>Comprobantes procesados</h3></div>
+          <input class="search" id="searchInput" placeholder="Buscar por RUC, proveedor o serie">
+        </div>
+        <div class="table-wrap">
+          <table><thead><tr><th>Fecha</th><th>Documento</th><th>Proveedor</th><th>RUC</th><th>Total</th><th>Estado</th></tr></thead><tbody id="documentsBody"></tbody></table>
+        </div>
+        <div id="documentsEmpty" class="empty-state">No hay comprobantes registrados.</div>
+      </article>
+    </section>
+
+    <section class="view" id="entries">
+      <article class="card">
+        <div class="card-head"><div><span class="overline">PCGE REFERENCIAL</span><h3>Asientos contables</h3></div></div>
+        <div id="entriesList"></div>
+        <div id="entriesEmpty" class="empty-state">No hay asientos generados.</div>
+      </article>
+    </section>
+
+    <section class="view" id="exports">
+      <div class="export-grid">
+        <article class="card export-card"><div class="export-symbol">XLS</div><h3>Comprobantes para Excel</h3><p>Descarga un archivo CSV con los datos registrados.</p><button id="exportCsv" class="btn primary full">Descargar CSV</button></article>
+        <article class="card export-card"><div class="export-symbol txt">TXT</div><h3>Asientos contables</h3><p>Genera un TXT para revisión y adaptación a software contable.</p><button id="exportTxt" class="btn primary full">Descargar TXT</button></article>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
