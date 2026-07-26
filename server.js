@@ -419,7 +419,7 @@ ${pdfText ? `8. Texto extraído del PDF para apoyo:\n${pdfText.slice(0, 12000)}`
   }
 
   const endpoint =
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+    `https://generativelanguage.googleapis.com/v1/models/${encodeURIComponent(model)}:generateContent`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 90000);
@@ -480,39 +480,81 @@ ${pdfText ? `8. Texto extraído del PDF para apoyo:\n${pdfText.slice(0, 12000)}`
   }
 }
 
-async function extractReceiptWithVision({ originalPath, enhancedPaths, pdfText = "" }) {
+async function listAvailableGeminiModels(apiKey) {
+  const endpoint = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000";
+  const response = await fetch(endpoint, {
+    headers: { "x-goog-api-key": apiKey }
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data?.error?.message || `No se pudieron listar los modelos (${response.status}).`);
+  }
+
+  return (data.models || [])
+    .filter(model => Array.isArray(model.supportedGenerationMethods))
+    .filter(model => model.supportedGenerationMethods.includes("generateContent"))
+    .map(model => String(model.name || "").replace(/^models\//, ""))
+    .filter(name => name.startsWith("gemini-"));
+}
+
+function rankGeminiModels(models, configured = "") {
+  const unique = [...new Set([configured, ...models].map(x => String(x || "").trim()).filter(Boolean))];
+  const score = name => {
+    let points = 0;
+    if (name === configured) points += 10000;
+    if (/gemini-3\.5-flash$/.test(name)) points += 9000;
+    if (/gemini-3\.5-flash/.test(name)) points += 8500;
+    if (/gemini-3\.[0-9]+-flash-lite/.test(name)) points += 8000;
+    if (/gemini-3\.[0-9]+-flash/.test(name)) points += 7500;
+    if (/flash-lite/.test(name)) points += 600;
+    if (/flash/.test(name)) points += 500;
+    if (/pro/.test(name)) points += 200;
+    if (/preview|latest/.test(name)) points -= 40;
+    if (/image|tts|audio|live|computer|robotics|embedding|aqa|imagen|veo/i.test(name)) points -= 10000;
+    return points;
+  };
+  return unique.sort((a, b) => score(b) - score(a));
+}
+
+async function getGeminiCandidates(apiKey) {
+  const configured = String(process.env.GEMINI_MODEL || "").trim();
+  try {
+    const available = await listAvailableGeminiModels(apiKey);
+    const ranked = rankGeminiModels(available, configured);
+    if (ranked.length) return ranked;
+  } catch (error) {
+    console.warn("No se pudo consultar la lista de modelos Gemini:", error.message);
+  }
+
+  // Respaldo actual. El modelo configurado siempre se intenta primero.
+  return rankGeminiModels([
+    "gemini-3.6-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-3.1-flash-lite"
+  ], configured);
+}
+
+async function extractReceiptWithVision({ originalPath, originalMimeType, enhancedPaths, pdfText = "" }) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
 
-  const configured = String(process.env.GEMINI_MODEL || "gemini-2.5-flash").trim();
-  const candidates = [...new Set([
-    configured,
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite"
-  ])];
-
+  const candidates = await getGeminiCandidates(apiKey);
   const images = [
-    { path: originalPath, mimeType: "image/png" },
+    { path: originalPath, mimeType: originalMimeType || "image/png" },
     ...enhancedPaths.slice(0, 1).map(file => ({ path: file, mimeType: "image/png" }))
   ];
 
   const errors = [];
-  for (const model of candidates) {
+  for (const model of candidates.slice(0, 8)) {
     try {
-      return await callGeminiReceiptModel({
-        model,
-        apiKey,
-        images,
-        pdfText
-      });
+      return await callGeminiReceiptModel({ model, apiKey, images, pdfText });
     } catch (error) {
       errors.push(`${model}: ${error.message}`);
-      // Error 400/404 puede ser modelo o esquema; prueba el siguiente modelo.
-      // Error 429 también puede resolverse con otro modelo dentro de la cuota.
     }
   }
 
-  throw new Error(errors.join(" | "));
+  throw new Error(errors.join(" | ") || "No se encontró un modelo Gemini compatible con generateContent.");
 }
 
 app.post("/api/scan", upload.single("document"), async (req, res) => {
@@ -531,6 +573,7 @@ app.post("/api/scan", upload.single("document"), async (req, res) => {
       try {
         const aiResult = await extractReceiptWithVision({
           originalPath: req.file.path,
+          originalMimeType: req.file.mimetype,
           enhancedPaths: variants,
           pdfText
         });
@@ -691,42 +734,38 @@ ${question}
 `;
 
   try {
-    const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-    const endpoint =
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+    const candidates = await getGeminiCandidates(process.env.GEMINI_API_KEY);
+    const errors = [];
 
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "x-goog-api-key": process.env.GEMINI_API_KEY,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        contents: [{
-          role: "user",
-          parts: [{ text: instructions }]
-        }],
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens: 500
-        }
-      })
-    });
+    for (const model of candidates.slice(0, 6)) {
+      try {
+        const endpoint =
+          `https://generativelanguage.googleapis.com/v1/models/${encodeURIComponent(model)}:generateContent`;
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "x-goog-api-key": process.env.GEMINI_API_KEY,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: instructions }] }],
+            generationConfig: { temperature: 0.3, maxOutputTokens: 500 }
+          })
+        });
 
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data?.error?.message || "No se pudo consultar a Gemini.");
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data?.error?.message || `Estado ${response.status}`);
+        const answer = geminiText(data);
+        return res.json({
+          ok: true,
+          model,
+          answer: answer || "No pude generar una respuesta en este momento."
+        });
+      } catch (error) {
+        errors.push(`${model}: ${error.message}`);
+      }
     }
-
-    const answer = data?.candidates?.[0]?.content?.parts
-      ?.map(part => part.text || "")
-      .join("")
-      .trim();
-
-    res.json({
-      ok: true,
-      answer: answer || "No pude generar una respuesta en este momento."
-    });
+    throw new Error(errors.join(" | "));
   } catch (error) {
     console.error("ContaBot Gemini:", error.message);
     res.status(500).json({
@@ -739,7 +778,7 @@ app.get("/api/status", (_req, res) => {
   res.json({
     visionAI: Boolean(process.env.GEMINI_API_KEY),
     provider: "Google Gemini",
-    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
+    model: process.env.GEMINI_MODEL || "gemini-3.5-flash",
     freeTier: true,
     mode: process.env.GEMINI_API_KEY ? "gemini-required" : "ocr-only"
   });
@@ -750,32 +789,47 @@ app.get("/api/gemini-test", async (_req, res) => {
     return res.status(503).json({ ok: false, error: "Falta GEMINI_API_KEY." });
   }
 
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
   try {
-    const endpoint =
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "x-goog-api-key": process.env.GEMINI_API_KEY,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: "Responde solamente: CONEXION_OK" }] }],
-        generationConfig: { temperature: 0, maxOutputTokens: 20 }
-      })
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      return res.status(response.status).json({
-        ok: false,
-        model,
-        error: data?.error?.message || `Estado ${response.status}`
-      });
+    const candidates = await getGeminiCandidates(process.env.GEMINI_API_KEY);
+    const errors = [];
+
+    for (const model of candidates.slice(0, 8)) {
+      try {
+        const endpoint =
+          `https://generativelanguage.googleapis.com/v1/models/${encodeURIComponent(model)}:generateContent`;
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "x-goog-api-key": process.env.GEMINI_API_KEY,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: "Responde solamente: CONEXION_OK" }] }],
+            generationConfig: { temperature: 0, maxOutputTokens: 20 }
+          })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data?.error?.message || `Estado ${response.status}`);
+        return res.json({
+          ok: true,
+          model,
+          answer: geminiText(data),
+          automaticSelection: true,
+          availableCandidates: candidates.slice(0, 8)
+        });
+      } catch (error) {
+        errors.push(`${model}: ${error.message}`);
+      }
     }
-    return res.json({ ok: true, model, answer: geminiText(data) });
+
+    return res.status(502).json({
+      ok: false,
+      error: "No se encontró un modelo Gemini utilizable para esta clave.",
+      detail: errors.join(" | "),
+      candidates: candidates.slice(0, 8)
+    });
   } catch (error) {
-    return res.status(500).json({ ok: false, model, error: error.message });
+    return res.status(500).json({ ok: false, error: error.message });
   }
 });
 

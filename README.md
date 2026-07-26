@@ -1,53 +1,45 @@
-# ContaScan IA v5 — lector Gemini robusto
+# ContaScan IA — Proyecto final actualizado
 
-## Cambio principal
-Esta versión ya no oculta los errores de Gemini usando automáticamente un OCR defectuoso.
+Aplicación web para cargar comprobantes peruanos, extraer sus datos con Google Gemini, revisar y guardar la información, generar un asiento contable referencial y consultar el historial.
 
-Cuando existe `GEMINI_API_KEY`:
-1. Envía a Gemini la imagen original.
-2. Envía también una versión mejorada.
-3. Solicita JSON estructurado.
-4. Prueba el modelo configurado y modelos alternativos compatibles.
-5. Valida RUC, fecha, serie, número e importes.
-6. Si Gemini falla, muestra el error real y NO rellena campos incorrectos.
+## Funciones principales
 
-## Variables de Render
-Solo necesitas:
+- Lectura de JPG, PNG, WEBP y PDF; el PDF se convierte en el navegador.
+- Extracción de RUC del emisor, razón social, fecha, serie, número, subtotal, IGV, total y moneda.
+- Selección automática de un modelo Gemini compatible con `generateContent`.
+- Modelos de respaldo actuales: `gemini-3.6-flash`, `gemini-3.5-flash-lite`, `gemini-3.5-flash` y `gemini-3.1-flash-lite`.
+- Uso del endpoint estable `v1` de Gemini para generar contenido.
+- Diagnóstico disponible en `/api/gemini-test`.
+- Edición y guardado local de comprobantes.
+- Detección de duplicados.
+- Generación de asiento contable referencial con cuentas frecuentes del PCGE.
+- Exportaciones y ContaBot.
+- OCR manual de respaldo cuando Gemini no esté configurado o el usuario lo solicite.
 
-```text
-GEMINI_API_KEY=tu_clave
-GEMINI_MODEL=gemini-2.5-flash
-```
+## Archivos que debes subir a GitHub
 
-## Actualización
-1. Reemplaza los archivos de tu proyecto con esta carpeta.
-2. Ejecuta:
+Sube directamente el contenido de esta carpeta:
 
-```bash
-git add .
-git commit -m "Actualizar lector Gemini robusto v5"
-git push origin main
-```
+- `server.js`
+- `package.json`
+- `.gitignore`
+- `README.md`
+- carpeta `public`
 
-3. Espera el despliegue de Render.
-4. Abre la aplicación.
-5. Pulsa **Probar conexión** en la tarjeta inferior izquierda.
-6. Debe mostrar `Gemini conectado: gemini-2.5-flash`.
-7. Sube una factura y pulsa **Leer con IA**.
+No subas `node_modules`.
 
-## Diagnóstico directo
-También puedes abrir:
+## Despliegue en Render
 
-```text
-https://TU-APP.onrender.com/api/gemini-test
-```
+1. Reemplaza los archivos anteriores del repositorio por los archivos de esta carpeta.
+2. En Render conserva `GEMINI_API_KEY` con tu clave de Google AI Studio.
+3. Elimina `GEMINI_MODEL` para permitir la selección automática.
+4. Build command: `npm install`
+5. Start command: `npm start`
+6. Ejecuta `Manual Deploy` y selecciona `Deploy latest commit`.
+7. Cuando aparezca `Live`, abre `/api/gemini-test`.
 
-Debe devolver algo parecido a:
+El modelo exacto puede variar según los modelos habilitados para la clave.
 
-```json
-{"ok":true,"model":"gemini-2.5-flash","answer":"CONEXION_OK"}
-```
+## Importante
 
-## Nota
-La calidad depende de la resolución del comprobante y de la cuota disponible en Gemini.
-La aplicación permite corregir los campos antes de guardar y los asientos son referenciales.
+La lectura depende de la disponibilidad y cuota de Gemini. Los campos extraídos y los asientos contables deben revisarse antes de utilizarse.
