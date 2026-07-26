@@ -209,6 +209,42 @@
     </section>
   </main>
 
+
+  <button id="chatLauncher" class="chat-launcher" aria-label="Abrir asistente ContaBot">
+    <span class="bot-face">◉‿◉</span>
+    <span class="bot-pulse"></span>
+  </button>
+
+  <aside id="chatPanel" class="chat-panel hidden" aria-label="Asistente ContaBot">
+    <div class="chat-header">
+      <div class="chat-avatar">◉‿◉</div>
+      <div>
+        <strong>ContaBot</strong>
+        <small>Asistente de ContaScan IA</small>
+      </div>
+      <button id="chatClose" aria-label="Cerrar">×</button>
+    </div>
+
+    <div id="chatMessages" class="chat-messages">
+      <div class="chat-message bot">
+        Hola, soy ContaBot. Puedo ayudarte a entender los datos del comprobante,
+        el IGV, los asientos y el uso de la aplicación.
+      </div>
+    </div>
+
+    <div class="chat-suggestions">
+      <button data-question="¿Qué significa base imponible?">Base imponible</button>
+      <button data-question="Explícame el asiento generado">Explicar asiento</button>
+      <button data-question="¿Qué datos debo revisar antes de guardar?">Qué revisar</button>
+    </div>
+
+    <form id="chatForm" class="chat-input-row">
+      <input id="chatInput" maxlength="1200" placeholder="Escribe una pregunta..." autocomplete="off">
+      <button type="submit" aria-label="Enviar">➤</button>
+    </form>
+    <small class="chat-disclaimer">Respuestas orientativas. Revisa la información contable antes de usarla.</small>
+  </aside>
+
   <div id="toast" class="toast"></div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"}</script>

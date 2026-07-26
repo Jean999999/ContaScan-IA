@@ -2,6 +2,7 @@
 const $ = id => document.getElementById(id);
 const titles = {dashboard:"Panel principal",scanner:"Escanear comprobante",documents:"Comprobantes",entries:"Asientos contables",exports:"Exportaciones"};
 let file = null;
+let extractedPdfText = "";
 let records = JSON.parse(localStorage.getItem("contascan_pro_records") || "[]");
 
 document.querySelectorAll(".nav").forEach(btn => btn.addEventListener("click", () => show(btn.dataset.view)));
@@ -47,13 +48,29 @@ async function selectFile(selected){
     $("previewArea").innerHTML=""; $("previewArea").appendChild(img);
   }catch(e){toast("No se pudo mostrar la vista previa")}
 }
-async function pdfFirstPageToBlob(pdfFile,scale=2.8){
+async function readPdf(pdfFile, scale=3.2){
   if(!window.pdfjsLib) throw new Error("No se cargó el lector PDF");
   const pdf=await pdfjsLib.getDocument({data:await pdfFile.arrayBuffer()}).promise;
-  const page=await pdf.getPage(1); const viewport=page.getViewport({scale});
-  const canvas=document.createElement("canvas"); canvas.width=Math.ceil(viewport.width); canvas.height=Math.ceil(viewport.height);
-  await page.render({canvasContext:canvas.getContext("2d",{willReadFrequently:true}),viewport}).promise;
+  const page=await pdf.getPage(1);
+
+  // Extrae texto real cuando el PDF es digital.
+  const content=await page.getTextContent();
+  extractedPdfText=content.items.map(item=>item.str).join(" ");
+
+  const viewport=page.getViewport({scale});
+  const canvas=document.createElement("canvas");
+  canvas.width=Math.ceil(viewport.width);
+  canvas.height=Math.ceil(viewport.height);
+  await page.render({
+    canvasContext:canvas.getContext("2d",{willReadFrequently:true}),
+    viewport
+  }).promise;
+
   return preprocessCanvasToBlob(canvas);
+}
+
+async function pdfFirstPageToBlob(pdfFile,scale=3.2){
+  return readPdf(pdfFile,scale);
 }
 async function imageToProcessedBlob(imageFile){
   const bitmap=await createImageBitmap(imageFile); const scale=Math.max(1,Math.min(3,2400/bitmap.width));
@@ -62,10 +79,59 @@ async function imageToProcessedBlob(imageFile){
   return preprocessCanvasToBlob(canvas);
 }
 async function preprocessCanvasToBlob(canvas){
-  const ctx=canvas.getContext("2d",{willReadFrequently:true}); const im=ctx.getImageData(0,0,canvas.width,canvas.height); const d=im.data;
-  for(let i=0;i<d.length;i+=4){let g=.299*d[i]+.587*d[i+1]+.114*d[i+2];g=(g-128)*1.45+128;g=Math.max(0,Math.min(255,g));d[i]=d[i+1]=d[i+2]=g}
+  const source=canvas.getContext("2d",{willReadFrequently:true});
+  const image=source.getImageData(0,0,canvas.width,canvas.height);
+  const d=image.data;
+
+  // Busca los límites del documento ignorando márgenes blancos.
+  let minX=canvas.width, minY=canvas.height, maxX=0, maxY=0;
+  const step=Math.max(1,Math.floor(Math.min(canvas.width,canvas.height)/1200));
+
+  for(let y=0;y<canvas.height;y+=step){
+    for(let x=0;x<canvas.width;x+=step){
+      const i=(y*canvas.width+x)*4;
+      const gray=.299*d[i]+.587*d[i+1]+.114*d[i+2];
+      if(gray<242){
+        if(x<minX)minX=x; if(x>maxX)maxX=x;
+        if(y<minY)minY=y; if(y>maxY)maxY=y;
+      }
+    }
+  }
+
+  let cropX=0,cropY=0,cropW=canvas.width,cropH=canvas.height;
+  if(maxX>minX && maxY>minY){
+    const pad=Math.round(Math.max(canvas.width,canvas.height)*.018);
+    cropX=Math.max(0,minX-pad);
+    cropY=Math.max(0,minY-pad);
+    cropW=Math.min(canvas.width-cropX,maxX-minX+pad*2);
+    cropH=Math.min(canvas.height-cropY,maxY-minY+pad*2);
+  }
+
+  const cropped=document.createElement("canvas");
+  const desiredWidth=Math.min(3000,Math.max(2200,cropW*2));
+  const ratio=desiredWidth/cropW;
+  cropped.width=Math.round(cropW*ratio);
+  cropped.height=Math.round(cropH*ratio);
+  const ctx=cropped.getContext("2d",{willReadFrequently:true});
+  ctx.drawImage(canvas,cropX,cropY,cropW,cropH,0,0,cropped.width,cropped.height);
+
+  const im=ctx.getImageData(0,0,cropped.width,cropped.height);
+  const px=im.data;
+  for(let i=0;i<px.length;i+=4){
+    let g=.299*px[i]+.587*px[i+1]+.114*px[i+2];
+    g=(g-128)*1.55+128;
+    g=Math.max(0,Math.min(255,g));
+    px[i]=px[i+1]=px[i+2]=g;
+  }
   ctx.putImageData(im,0,0);
-  return new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error("No se pudo preparar el documento")),"image/png",1));
+
+  return new Promise((resolve,reject)=>
+    cropped.toBlob(
+      blob=>blob?resolve(blob):reject(new Error("No se pudo preparar el documento")),
+      "image/png",
+      1
+    )
+  );
 }
 
 async function scanFile(){
@@ -73,12 +139,13 @@ async function scanFile(){
   try{
     setProgress(15,"Preparando el documento...");
     const blob=file.type==="application/pdf"?await pdfFirstPageToBlob(file,2.8):await imageToProcessedBlob(file);
-    const form=new FormData(); form.append("document",blob,"documento.png");
-    setProgress(42,"La IA está leyendo el documento...");
+    const form=new FormData(); form.append("document",blob,"documento.png"); form.append("pdfText",extractedPdfText||"");
+    setProgress(42,"Analizando varias versiones del documento...");
     const response=await fetch("/api/scan",{method:"POST",body:form}); const data=await response.json();
     if(!response.ok) throw new Error(data.error||"No se pudo procesar");
     setProgress(92,"Organizando los datos..."); fill(data.parsed);
-    $("confidenceBadge").textContent=`OCR ${data.ocrConfidence}% · extracción ${data.parsed.confidence}%`;
+    const engineName=data.engine==="vision-ai"?"IA visual":"OCR de respaldo";
+    $("confidenceBadge").textContent=`${engineName} · precisión ${Math.round(data.parsed.confidence||data.ocrConfidence||0)}%`;
     $("resultCard").classList.remove("hidden"); setProgress(100,"Lectura completada"); toast("Documento leído. Revisa los campos.");
   }catch(e){toast(e.message);setProgress(0,"No se pudo completar la lectura")}finally{$("scanBtn").disabled=false}
 }
@@ -150,10 +217,96 @@ function exportTXT(){
   download(text,"contascan_asientos.txt","text/plain;charset=utf-8");
 }
 function download(content,name,type){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([content],{type}));a.download=name;a.click();URL.revokeObjectURL(a.href)}
-function resetScanner(){file=null;$("fileInput").value="";$("selectedFile").classList.add("hidden");$("scanBtn").disabled=true;$("resultCard").classList.add("hidden");$("progressBox").classList.add("hidden");$("previewArea").innerHTML='<div>▧</div><p>La imagen aparecerá aquí.</p>';document.querySelectorAll("#resultCard input").forEach(i=>i.value="");$("duplicateAlert").classList.add("hidden")}
+function resetScanner(){file=null;extractedPdfText="";$("fileInput").value="";$("selectedFile").classList.add("hidden");$("scanBtn").disabled=true;$("resultCard").classList.add("hidden");$("progressBox").classList.add("hidden");$("previewArea").innerHTML='<div>▧</div><p>La imagen aparecerá aquí.</p>';document.querySelectorAll("#resultCard input").forEach(i=>i.value="");$("duplicateAlert").classList.add("hidden")}
 function setProgress(v,t){$("progressBar").style.width=v+"%";$("progressText").textContent=t}
 function money(n,c){return new Intl.NumberFormat("es-PE",{style:"currency",currency:c||"PEN"}).format(Number(n||0))}
 function datePE(d){return new Date(d+"T00:00:00").toLocaleDateString("es-PE")}
 function esc(s=""){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
 function toast(msg){$("toast").textContent=msg;$("toast").classList.add("show");setTimeout(()=>$("toast").classList.remove("show"),2600)}
 updateDashboard();
+
+
+async function updateEngineStatus(){
+  try{
+    const data=await fetch("/api/status").then(r=>r.json());
+    const card=document.querySelector(".mini-card");
+    if(!card)return;
+    const strong=card.querySelector("strong");
+    const small=card.querySelector("small");
+    if(data.visionAI){
+      strong.textContent="IA visual activa";
+      small.textContent="Extracción inteligente configurada";
+    }else{
+      strong.textContent="OCR básico activo";
+      small.textContent="Configura OPENAI_API_KEY en Render";
+    }
+  }catch(_e){}
+}
+updateEngineStatus();
+
+
+function currentReceiptForAssistant(){
+  const resultCard=$("resultCard");
+  if(!resultCard || resultCard.classList.contains("hidden")) return null;
+  return {
+    type:$("type")?.value||"",
+    ruc:$("ruc")?.value||"",
+    businessName:$("businessName")?.value||"",
+    issueDate:$("issueDate")?.value||"",
+    series:$("series")?.value||"",
+    number:$("number")?.value||"",
+    subtotal:$("subtotal")?.value||"",
+    igv:$("igv")?.value||"",
+    total:$("total")?.value||"",
+    currency:$("currency")?.value||"PEN",
+    category:$("category")?.selectedOptions?.[0]?.text||""
+  };
+}
+
+function addChatMessage(text,role="bot",extraClass=""){
+  const div=document.createElement("div");
+  div.className=`chat-message ${role} ${extraClass}`.trim();
+  div.textContent=text;
+  $("chatMessages").appendChild(div);
+  $("chatMessages").scrollTop=$("chatMessages").scrollHeight;
+  return div;
+}
+
+async function askContaBot(question){
+  const clean=String(question||"").trim();
+  if(!clean)return;
+  addChatMessage(clean,"user");
+  $("chatInput").value="";
+  const loading=addChatMessage("ContaBot está pensando…","bot","loading");
+
+  try{
+    const response=await fetch("/api/chat",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        question:clean,
+        receipt:currentReceiptForAssistant()
+      })
+    });
+    const data=await response.json();
+    loading.remove();
+    if(!response.ok)throw new Error(data.error||"No se pudo obtener respuesta");
+    addChatMessage(data.answer,"bot");
+  }catch(error){
+    loading.remove();
+    addChatMessage(error.message,"bot");
+  }
+}
+
+$("chatLauncher")?.addEventListener("click",()=>{
+  $("chatPanel").classList.toggle("hidden");
+  if(!$("chatPanel").classList.contains("hidden")) $("chatInput").focus();
+});
+$("chatClose")?.addEventListener("click",()=>$("chatPanel").classList.add("hidden"));
+$("chatForm")?.addEventListener("submit",event=>{
+  event.preventDefault();
+  askContaBot($("chatInput").value);
+});
+document.querySelectorAll("[data-question]").forEach(button=>{
+  button.addEventListener("click",()=>askContaBot(button.dataset.question));
+});
