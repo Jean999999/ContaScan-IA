@@ -45,3 +45,9 @@
   .chat-launcher{right:15px;bottom:83px;width:58px;height:58px}
   .chat-panel{right:8px;bottom:150px;width:calc(100vw - 16px);height:60vh}
 }
+
+.mini-test-button{
+  margin-top:7px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.08);
+  color:#dcecff;border-radius:8px;padding:5px 8px;font-size:9px;cursor:pointer
+}
+.mini-test-button:hover{background:rgba(255,255,255,.15)}

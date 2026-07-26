@@ -144,7 +144,9 @@ async function scanFile(){
     const response=await fetch("/api/scan",{method:"POST",body:form}); const data=await response.json();
     if(!response.ok) throw new Error(data.error||"No se pudo procesar");
     setProgress(92,"Organizando los datos..."); fill(data.parsed);
-    const engineName=data.engine==="vision-ai"?"IA visual":"OCR de respaldo";
+    const engineName=data.engine==="gemini"
+      ? `Gemini (${data.model||"modelo activo"})`
+      : "OCR de respaldo";
     $("confidenceBadge").textContent=`${engineName} · precisión ${Math.round(data.parsed.confidence||data.ocrConfidence||0)}%`;
     $("resultCard").classList.remove("hidden"); setProgress(100,"Lectura completada"); toast("Documento leído. Revisa los campos.");
   }catch(e){toast(e.message);setProgress(0,"No se pudo completar la lectura")}finally{$("scanBtn").disabled=false}
@@ -310,3 +312,19 @@ $("chatForm")?.addEventListener("submit",event=>{
 document.querySelectorAll("[data-question]").forEach(button=>{
   button.addEventListener("click",()=>askContaBot(button.dataset.question));
 });
+
+
+async function testGeminiConnection(){
+  try{
+    const response=await fetch("/api/gemini-test");
+    const data=await response.json();
+    if(!response.ok) throw new Error(data.error||"Conexión fallida");
+    toast(`Gemini conectado: ${data.model}`);
+    return true;
+  }catch(error){
+    toast(`Gemini no responde: ${error.message}`);
+    return false;
+  }
+}
+
+window.testGeminiConnection=testGeminiConnection;

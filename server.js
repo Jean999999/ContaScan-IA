@@ -287,8 +287,8 @@ function normalizeAiReceipt(data = {}) {
   ];
 
   const type = allowedTypes.includes(data.type) ? data.type : "Otro";
-  const ruc = String(data.ruc || "").replace(/\D/g, "").slice(0, 11);
-  const series = String(data.series || "").trim().toUpperCase().slice(0, 8);
+  const ruc = String(data.ruc || "").replace(/\D/g, "");
+  const series = String(data.series || "").trim().toUpperCase().replace(/\s/g, "").slice(0, 10);
   const number = String(data.number || "").replace(/\D/g, "").slice(0, 12);
 
   const toAmount = value => {
@@ -299,7 +299,7 @@ function normalizeAiReceipt(data = {}) {
   return {
     type,
     ruc: ruc.length === 11 ? ruc : "",
-    businessName: String(data.businessName || "").trim().slice(0, 140),
+    businessName: String(data.businessName || "").replace(/\s+/g, " ").trim().slice(0, 160),
     issueDate: /^\d{4}-\d{2}-\d{2}$/.test(String(data.issueDate || ""))
       ? String(data.issueDate)
       : "",
@@ -308,34 +308,48 @@ function normalizeAiReceipt(data = {}) {
     subtotal: toAmount(data.subtotal),
     igv: toAmount(data.igv),
     total: toAmount(data.total),
-    currency: data.currency === "USD" ? "USD" : "PEN",
+    currency: String(data.currency || "").toUpperCase() === "USD" ? "USD" : "PEN",
     confidence: Math.max(0, Math.min(100, Number(data.confidence || 0))),
-    observations: String(data.observations || "").trim().slice(0, 300)
+    observations: String(data.observations || "").replace(/\s+/g, " ").trim().slice(0, 500)
   };
 }
 
-function getResponseOutputText(responseJson) {
-  if (typeof responseJson.output_text === "string") return responseJson.output_text;
+function validateAiReceipt(receipt) {
+  const issues = [];
+  if (!receipt.ruc) issues.push("RUC no reconocido");
+  if (!receipt.businessName) issues.push("razón social no reconocida");
+  if (!receipt.issueDate) issues.push("fecha no reconocida");
+  if (!receipt.series) issues.push("serie no reconocida");
+  if (!receipt.number) issues.push("número no reconocido");
+  if (receipt.total === "") issues.push("total no reconocido");
 
-  const parts = [];
-  for (const item of responseJson.output || []) {
-    if (item.type !== "message") continue;
-    for (const content of item.content || []) {
-      if (content.type === "output_text" && typeof content.text === "string") {
-        parts.push(content.text);
-      }
+  if (
+    receipt.subtotal !== "" &&
+    receipt.igv !== "" &&
+    receipt.total !== ""
+  ) {
+    const expected = Number(receipt.subtotal) + Number(receipt.igv);
+    if (Math.abs(expected - Number(receipt.total)) > 0.15) {
+      issues.push("subtotal + IGV no coincide con el total");
     }
   }
-  return parts.join("\n");
+
+  return {
+    complete: issues.length === 0,
+    issues
+  };
 }
 
-async function extractReceiptWithVision(imagePath, mimeType = "image/png") {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
+function geminiText(data) {
+  return data?.candidates?.[0]?.content?.parts
+    ?.map(part => part.text || "")
+    .join("")
+    .trim() || "";
+}
 
-  const base64 = fs.readFileSync(imagePath).toString("base64");
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-
+async function callGeminiReceiptModel({ model, apiKey, images, pdfText = "" }) {
+  // Se usan STRING para importes porque el esquema REST acepta esta forma
+  // de manera más estable; luego el servidor los normaliza a números.
   const schema = {
     type: "OBJECT",
     properties: {
@@ -351,9 +365,9 @@ async function extractReceiptWithVision(imagePath, mimeType = "image/png") {
       issueDate: { type: "STRING" },
       series: { type: "STRING" },
       number: { type: "STRING" },
-      subtotal: { type: "NUMBER", nullable: true },
-      igv: { type: "NUMBER", nullable: true },
-      total: { type: "NUMBER", nullable: true },
+      subtotal: { type: "STRING" },
+      igv: { type: "STRING" },
+      total: { type: "STRING" },
       currency: { type: "STRING", enum: ["PEN", "USD"] },
       confidence: { type: "NUMBER" },
       observations: { type: "STRING" }
@@ -365,126 +379,235 @@ async function extractReceiptWithVision(imagePath, mimeType = "image/png") {
   };
 
   const prompt = `
-Analiza cuidadosamente este comprobante peruano y extrae únicamente datos visibles.
-Puede ser factura, boleta, recibo por honorarios, nota de crédito o nota de débito.
+Eres un extractor especializado en comprobantes electrónicos y físicos del Perú.
+Analiza las imágenes del mismo comprobante. Una puede ser original y otra mejorada.
+Devuelve solamente el JSON solicitado.
 
-Reglas obligatorias:
-- RUC: exactamente 11 dígitos; si no se distingue, devuelve cadena vacía.
-- Fecha: formato YYYY-MM-DD; si no se distingue, devuelve cadena vacía.
-- Serie y número: no inventes datos ni completes caracteres dudosos.
-- subtotal: valor de venta, operación gravada o base imponible.
-- igv: importe de IGV mostrado.
-- total: importe total o total a pagar.
-- currency: PEN, salvo que el documento indique dólares.
-- No calcules importes ausentes.
-- confidence: porcentaje estimado de 0 a 100 según legibilidad.
-- observations: menciona brevemente campos dudosos o ausentes.
+Campos:
+- type: tipo de comprobante.
+- ruc: RUC DEL EMISOR, exactamente 11 dígitos. No uses el RUC del cliente.
+- businessName: razón social o nombre comercial principal DEL EMISOR.
+- issueDate: fecha de emisión en formato YYYY-MM-DD.
+- series: serie, por ejemplo F001, B001, E001, FC01.
+- number: correlativo sin la serie.
+- subtotal: operación gravada, valor de venta o base imponible, como texto decimal.
+- igv: IGV mostrado, como texto decimal.
+- total: importe total o total a pagar, como texto decimal.
+- currency: PEN o USD.
+- confidence: 0 a 100.
+- observations: campos dudosos, ilegibles o ausentes.
+
+Reglas:
+1. Lee primero el encabezado y el recuadro del comprobante.
+2. No confundas RUC del cliente con RUC del emisor.
+3. No uses importes de productos individuales como total.
+4. No inventes ni calcules campos que no aparecen.
+5. Para campos ausentes usa cadena vacía.
+6. Conserva exactamente la razón social visible, pero elimina saltos de línea.
+7. Si hay varios totales, usa "IMPORTE TOTAL", "TOTAL A PAGAR" o equivalente.
+${pdfText ? `8. Texto extraído del PDF para apoyo:\n${pdfText.slice(0, 12000)}` : ""}
 `;
+
+  const parts = [{ text: prompt }];
+  for (const image of images) {
+    parts.push({
+      inlineData: {
+        mimeType: image.mimeType,
+        data: fs.readFileSync(image.path).toString("base64")
+      }
+    });
+  }
 
   const endpoint =
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "x-goog-api-key": apiKey,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      contents: [{
-        role: "user",
-        parts: [
-          { text: prompt },
-          {
-            inlineData: {
-              mimeType,
-              data: base64
-            }
-          }
-        ]
-      }],
-      generationConfig: {
-        temperature: 0.1,
-        responseMimeType: "application/json",
-        responseSchema: schema
-      }
-    })
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90000);
 
-  const responseJson = await response.json();
-  if (!response.ok) {
-    const message =
-      responseJson?.error?.message ||
-      "Error del servicio gratuito de Gemini.";
-    throw new Error(message);
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "x-goog-api-key": apiKey,
+        "Content-Type": "application/json"
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        contents: [{ role: "user", parts }],
+        generationConfig: {
+          temperature: 0,
+          maxOutputTokens: 1000,
+          responseMimeType: "application/json",
+          responseSchema: schema
+        }
+      })
+    });
+
+    const responseJson = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(
+        responseJson?.error?.message ||
+        `Gemini respondió con estado ${response.status}.`
+      );
+      error.status = response.status;
+      throw error;
+    }
+
+    const outputText = geminiText(responseJson);
+    if (!outputText) {
+      const finishReason = responseJson?.candidates?.[0]?.finishReason || "sin respuesta";
+      throw new Error(`Gemini no devolvió contenido (${finishReason}).`);
+    }
+
+    let parsedJson;
+    try {
+      parsedJson = JSON.parse(outputText);
+    } catch {
+      const cleaned = outputText
+        .replace(/^```json\s*/i, "")
+        .replace(/```$/i, "")
+        .trim();
+      parsedJson = JSON.parse(cleaned);
+    }
+
+    return {
+      model,
+      receipt: normalizeAiReceipt(parsedJson),
+      usage: responseJson?.usageMetadata || null
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function extractReceiptWithVision({ originalPath, enhancedPaths, pdfText = "" }) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+
+  const configured = String(process.env.GEMINI_MODEL || "gemini-2.5-flash").trim();
+  const candidates = [...new Set([
+    configured,
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite"
+  ])];
+
+  const images = [
+    { path: originalPath, mimeType: "image/png" },
+    ...enhancedPaths.slice(0, 1).map(file => ({ path: file, mimeType: "image/png" }))
+  ];
+
+  const errors = [];
+  for (const model of candidates) {
+    try {
+      return await callGeminiReceiptModel({
+        model,
+        apiKey,
+        images,
+        pdfText
+      });
+    } catch (error) {
+      errors.push(`${model}: ${error.message}`);
+      // Error 400/404 puede ser modelo o esquema; prueba el siguiente modelo.
+      // Error 429 también puede resolverse con otro modelo dentro de la cuota.
+    }
   }
 
-  const outputText = responseJson?.candidates?.[0]?.content?.parts
-    ?.map(part => part.text || "")
-    .join("")
-    .trim();
-
-  if (!outputText) {
-    throw new Error("Gemini no devolvió datos estructurados.");
-  }
-
-  return normalizeAiReceipt(JSON.parse(outputText));
+  throw new Error(errors.join(" | "));
 }
 
 app.post("/api/scan", upload.single("document"), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "No se recibió ningún archivo." });
+  if (!req.file) {
+    return res.status(400).json({ error: "No se recibió ningún archivo." });
+  }
 
   let worker;
   let variants = [];
 
   try {
     variants = await createVariants(req.file.path);
+    const pdfText = typeof req.body.pdfText === "string" ? req.body.pdfText : "";
 
-    // 1) IA visual gratuita con Gemini: es la lectura principal cuando existe GEMINI_API_KEY.
-    let aiParsed = null;
-    let aiError = "";
+    if (process.env.GEMINI_API_KEY) {
+      try {
+        const aiResult = await extractReceiptWithVision({
+          originalPath: req.file.path,
+          enhancedPaths: variants,
+          pdfText
+        });
 
-    try {
-      aiParsed = await extractReceiptWithVision(variants[0], "image/png");
-    } catch (error) {
-      console.error("Gemini Vision:", error.message);
-      aiError = error.message;
+        const validation = validateAiReceipt(aiResult.receipt);
+        return res.json({
+          ok: true,
+          engine: "gemini",
+          model: aiResult.model,
+          parsed: aiResult.receipt,
+          validation,
+          warning: aiResult.receipt.observations || "",
+          usage: aiResult.usage
+        });
+      } catch (error) {
+        console.error("Gemini receipt extraction:", error.message);
+        return res.status(502).json({
+          error: "Gemini no pudo leer el comprobante.",
+          detail: error.message,
+          action:
+            "Revisa GEMINI_MODEL, la cuota gratuita y la clave. La aplicación no usó OCR para evitar mostrar datos incorrectos.",
+          canUseOcrFallback: true
+        });
+      }
     }
 
-    if (aiParsed) {
-      return res.json({
-        ok: true,
-        engine: "vision-ai",
-        ocrConfidence: aiParsed.confidence,
-        parsed: aiParsed,
-        rawText: "",
-        warning: aiParsed.observations || ""
-      });
-    }
+    // Solo se usa OCR cuando no existe una clave Gemini.
+    worker = await createWorker("spa");
+    const result = await recognizeBest(worker, variants);
+    const combined = [pdfText, result.text].filter(Boolean).join("\n\n--- OCR ---\n\n");
+    const parsed = parsePeruvianReceipt(combined);
 
-    // 2) Respaldo gratuito con Tesseract cuando no hay clave o la IA falla.
+    return res.json({
+      ok: true,
+      engine: "tesseract-fallback",
+      ocrConfidence: result.confidence,
+      parsed,
+      validation: validateAiReceipt(parsed),
+      warning:
+        "No hay GEMINI_API_KEY configurada. Se utilizó OCR básico y debes revisar todos los campos."
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      error: "No se pudo procesar el comprobante.",
+      detail: error.message
+    });
+  } finally {
+    if (worker) await worker.terminate();
+    fs.unlink(req.file.path, () => {});
+    for (const file of variants) fs.unlink(file, () => {});
+  }
+});
+
+app.post("/api/scan-ocr-fallback", upload.single("document"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No se recibió ningún archivo." });
+
+  let worker;
+  let variants = [];
+  try {
+    variants = await createVariants(req.file.path);
     worker = await createWorker("spa");
     const result = await recognizeBest(worker, variants);
     const pdfText = typeof req.body.pdfText === "string" ? req.body.pdfText : "";
     const combined = [pdfText, result.text].filter(Boolean).join("\n\n--- OCR ---\n\n");
     const parsed = parsePeruvianReceipt(combined);
 
-    res.json({
+    return res.json({
       ok: true,
       engine: "tesseract-fallback",
       ocrConfidence: result.confidence,
       parsed,
-      rawText: combined,
-      warning: process.env.GEMINI_API_KEY
-        ? `La IA visual falló y se usó OCR de respaldo: ${aiError}`
-        : "Falta configurar GEMINI_API_KEY en Render; se usó el OCR básico de respaldo."
+      validation: validateAiReceipt(parsed),
+      warning: "Lectura OCR manual. Revisa todos los campos antes de guardar."
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      error: "No se pudo procesar el comprobante.",
-      detail: error.message
-    });
+    return res.status(500).json({ error: "El OCR de respaldo falló.", detail: error.message });
   } finally {
     if (worker) await worker.terminate();
     fs.unlink(req.file.path, () => {});
@@ -617,8 +740,43 @@ app.get("/api/status", (_req, res) => {
     visionAI: Boolean(process.env.GEMINI_API_KEY),
     provider: "Google Gemini",
     model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-    freeTier: true
+    freeTier: true,
+    mode: process.env.GEMINI_API_KEY ? "gemini-required" : "ocr-only"
   });
+});
+
+app.get("/api/gemini-test", async (_req, res) => {
+  if (!process.env.GEMINI_API_KEY) {
+    return res.status(503).json({ ok: false, error: "Falta GEMINI_API_KEY." });
+  }
+
+  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  try {
+    const endpoint =
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "x-goog-api-key": process.env.GEMINI_API_KEY,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: "Responde solamente: CONEXION_OK" }] }],
+        generationConfig: { temperature: 0, maxOutputTokens: 20 }
+      })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return res.status(response.status).json({
+        ok: false,
+        model,
+        error: data?.error?.message || `Estado ${response.status}`
+      });
+    }
+    return res.json({ ok: true, model, answer: geminiText(data) });
+  } catch (error) {
+    return res.status(500).json({ ok: false, model, error: error.message });
+  }
 });
 
 app.get("*", (_req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));

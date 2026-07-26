@@ -1,59 +1,53 @@
-# ContaScan IA — versión gratuita con Gemini
+# ContaScan IA v5 — lector Gemini robusto
 
-Esta versión reemplaza OpenAI por **Google Gemini API**.
+## Cambio principal
+Esta versión ya no oculta los errores de Gemini usando automáticamente un OCR defectuoso.
 
-## Funciones
-- Lee facturas y boletas en imagen o PDF.
-- Extrae RUC, razón social, fecha, serie, número, base imponible, IGV y total.
-- Completa automáticamente el formulario.
-- Guarda el comprobante en el navegador.
-- Genera un asiento contable referencial.
-- Incluye el asistente flotante ContaBot.
-- Usa Tesseract como respaldo si Gemini no está configurado o no responde.
+Cuando existe `GEMINI_API_KEY`:
+1. Envía a Gemini la imagen original.
+2. Envía también una versión mejorada.
+3. Solicita JSON estructurado.
+4. Prueba el modelo configurado y modelos alternativos compatibles.
+5. Valida RUC, fecha, serie, número e importes.
+6. Si Gemini falla, muestra el error real y NO rellena campos incorrectos.
 
-## Configuración en Render
-
-Agrega estas variables en **Environment**:
+## Variables de Render
+Solo necesitas:
 
 ```text
-GEMINI_API_KEY=tu_clave_de_Google_AI_Studio
+GEMINI_API_KEY=tu_clave
 GEMINI_MODEL=gemini-2.5-flash
 ```
 
-No agregues `OPENAI_API_KEY`: esta versión ya no usa OpenAI.
+## Actualización
+1. Reemplaza los archivos de tu proyecto con esta carpeta.
+2. Ejecuta:
 
-## Obtener la clave
-
-1. Entra a Google AI Studio con tu cuenta.
-2. Abre la opción para obtener una API key.
-3. Crea una clave en un proyecto.
-4. Copia la clave.
-5. Pégala en Render como `GEMINI_API_KEY`.
-6. No publiques la clave en GitHub.
-
-## Prueba
-
-Cuando la clave esté configurada, la aplicación mostrará:
-
-```text
-Gemini IA activa
-Lectura gratuita configurada
+```bash
+git add .
+git commit -m "Actualizar lector Gemini robusto v5"
+git push origin main
 ```
 
-Después:
-1. Sube una factura o boleta.
-2. Presiona el botón de lectura.
-3. Revisa los datos detectados.
-4. Presiona **Guardar y generar asiento**.
-5. Abre ContaBot desde el pequeño robot ubicado en la esquina inferior derecha.
+3. Espera el despliegue de Render.
+4. Abre la aplicación.
+5. Pulsa **Probar conexión** en la tarjeta inferior izquierda.
+6. Debe mostrar `Gemini conectado: gemini-2.5-flash`.
+7. Sube una factura y pulsa **Leer con IA**.
 
-## Sobre el nivel gratuito
+## Diagnóstico directo
+También puedes abrir:
 
-La aplicación utiliza el nivel gratuito disponible para determinados modelos de Gemini.
-La cuota no es ilimitada y Google puede cambiar sus límites. Para un proyecto académico
-y una cantidad moderada de pruebas normalmente es suficiente.
+```text
+https://TU-APP.onrender.com/api/gemini-test
+```
 
-## Guardado
+Debe devolver algo parecido a:
 
-Los comprobantes se guardan con `localStorage`, es decir, en el navegador del dispositivo.
-No se comparte la información entre diferentes computadoras.
+```json
+{"ok":true,"model":"gemini-2.5-flash","answer":"CONEXION_OK"}
+```
+
+## Nota
+La calidad depende de la resolución del comprobante y de la cuota disponible en Gemini.
+La aplicación permite corregir los campos antes de guardar y los asientos son referenciales.
