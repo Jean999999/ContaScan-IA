@@ -51,3 +51,50 @@
   color:#dcecff;border-radius:8px;padding:5px 8px;font-size:9px;cursor:pointer
 }
 .mini-test-button:hover{background:rgba(255,255,255,.15)}
+
+
+/* Captura directa con cámara */
+.camera-start-button{
+  width:100%;border:1px solid #cfe0fb;border-radius:15px;background:linear-gradient(135deg,#edf8ff,#eef3ff);
+  color:var(--text);padding:14px 16px;display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer;
+  box-shadow:0 8px 20px rgba(43,114,255,.08);transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease
+}
+.camera-start-button:hover{transform:translateY(-2px);border-color:#78a9ff;box-shadow:0 12px 26px rgba(43,114,255,.14)}
+.camera-start-button>span:nth-child(2){flex:1}.camera-start-button strong,.camera-start-button small{display:block}
+.camera-start-button strong{font-size:13px}.camera-start-button small{font-size:10px;color:var(--muted);margin-top:4px}
+.camera-start-button>b{font-size:27px;color:var(--blue);font-weight:400}.camera-start-icon{width:44px;height:44px;border-radius:13px;
+  background:linear-gradient(145deg,#59dcff,#2b72ff);display:grid;place-items:center;font-size:20px;box-shadow:0 8px 18px rgba(43,114,255,.2)}
+.source-divider{display:flex;align-items:center;gap:10px;margin:15px 0;color:var(--muted);font-size:10px}
+.source-divider::before,.source-divider::after{content:"";height:1px;background:var(--line);flex:1}
+.source-divider span{white-space:nowrap}.camera-start-button+.source-divider+.dropzone{margin-top:0;min-height:235px}
+body.camera-open{overflow:hidden}
+.camera-modal{position:fixed;inset:0;z-index:100;background:rgba(2,12,27,.86);backdrop-filter:blur(8px);display:grid;place-items:center;padding:18px}
+.camera-dialog{width:min(720px,100%);max-height:calc(100vh - 36px);overflow:auto;background:#071b36;border:1px solid rgba(255,255,255,.16);
+  border-radius:24px;box-shadow:0 30px 90px rgba(0,0,0,.48);color:white;padding:18px}
+.camera-dialog-header{display:flex;align-items:flex-start;justify-content:space-between;gap:15px;padding:4px 3px 14px}
+.camera-dialog-header h3{margin:6px 0 0;font-size:19px}.camera-dialog-header .overline{color:#65dcff}
+.camera-close{border:0;background:rgba(255,255,255,.12);color:white;width:38px;height:38px;border-radius:12px;font-size:24px;cursor:pointer}
+.camera-stage{position:relative;overflow:hidden;border-radius:18px;background:#020812;aspect-ratio:3/4;max-height:62vh;margin:auto}
+.camera-stage video{width:100%;height:100%;object-fit:cover;display:block}
+.camera-shade{position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 0 999px rgba(0,0,0,.15)}
+.document-guide{position:absolute;left:8%;right:8%;top:7%;bottom:7%;border:1px solid rgba(255,255,255,.32);border-radius:12px;pointer-events:none}
+.corner{position:absolute;width:34px;height:34px;border-color:#5bdcff;border-style:solid}.top-left{left:-2px;top:-2px;border-width:4px 0 0 4px;border-radius:10px 0 0 0}
+.top-right{right:-2px;top:-2px;border-width:4px 4px 0 0;border-radius:0 10px 0 0}.bottom-left{left:-2px;bottom:-2px;border-width:0 0 4px 4px;border-radius:0 0 0 10px}
+.bottom-right{right:-2px;bottom:-2px;border-width:0 4px 4px 0;border-radius:0 0 10px 0}
+.scan-line{position:absolute;left:3%;right:3%;height:2px;top:8%;background:linear-gradient(90deg,transparent,#5bdcff,transparent);
+  box-shadow:0 0 14px #5bdcff;animation:cameraScan 2.8s ease-in-out infinite}
+@keyframes cameraScan{0%,100%{top:8%;opacity:.45}50%{top:91%;opacity:1}}
+.camera-status{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(5,22,48,.82);padding:10px 14px;border-radius:12px;
+  font-size:12px;text-align:center;max-width:80%}.camera-flash{position:absolute;inset:0;background:white;opacity:0;pointer-events:none;transition:opacity .18s}
+.camera-flash.active{opacity:.9}.camera-tip{text-align:center;color:#bfd0e9;font-size:11px;line-height:1.5;margin:13px 0 10px}
+.camera-controls{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:13px}.camera-controls>.btn:first-child{justify-self:start}
+.camera-switch-button{width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.1);color:white;font-size:24px;cursor:pointer}
+.camera-capture-button{justify-self:end;width:66px;height:66px;border-radius:50%;border:4px solid white;background:transparent;padding:5px;cursor:pointer;transition:transform .18s}
+.camera-capture-button span{display:block;width:100%;height:100%;border-radius:50%;background:white}.camera-capture-button:hover:not(:disabled){transform:scale(1.05)}
+.camera-capture-button:disabled{opacity:.42;cursor:wait}
+@media(max-width:600px){
+  .camera-modal{padding:0}.camera-dialog{min-height:100vh;max-height:100vh;border-radius:0;border:0;padding:12px;display:flex;flex-direction:column}
+  .camera-stage{width:100%;max-height:none;flex:1;min-height:0}.camera-dialog-header{padding-top:2px}.camera-dialog-header h3{font-size:16px}
+  .camera-tip{margin:9px 0}.camera-controls{padding-bottom:max(5px,env(safe-area-inset-bottom))}
+  .camera-start-button+.source-divider+.dropzone{min-height:205px}
+}

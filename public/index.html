@@ -105,8 +105,16 @@
       <div class="scanner-grid">
         <article class="card upload-card">
           <span class="step-label">PASO 1</span>
-          <h3>Carga tu comprobante</h3>
-          <p>Usa una imagen clara y completa para mejorar la lectura.</p>
+          <h3>Carga o fotografía tu comprobante</h3>
+          <p>Usa la cámara del celular o selecciona un archivo claro y completo.</p>
+
+          <button type="button" id="cameraBtn" class="camera-start-button">
+            <span class="camera-start-icon" aria-hidden="true">📷</span>
+            <span><strong>Escanear con la cámara</strong><small>Toma una foto del comprobante ahora</small></span>
+            <b aria-hidden="true">›</b>
+          </button>
+          <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+          <div class="source-divider"><span>o selecciona un archivo</span></div>
 
           <label class="dropzone" id="dropzone">
             <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp,application/pdf">
@@ -209,6 +217,38 @@
     </section>
   </main>
 
+
+  <div id="cameraModal" class="camera-modal hidden" role="dialog" aria-modal="true" aria-labelledby="cameraTitle">
+    <div class="camera-dialog">
+      <div class="camera-dialog-header">
+        <div>
+          <span class="overline">CAPTURA DEL COMPROBANTE</span>
+          <h3 id="cameraTitle">Alinea la factura dentro del marco</h3>
+        </div>
+        <button type="button" id="cameraClose" class="camera-close" aria-label="Cerrar cámara">×</button>
+      </div>
+
+      <div id="cameraStage" class="camera-stage">
+        <video id="cameraVideo" autoplay playsinline muted></video>
+        <div class="camera-shade" aria-hidden="true"></div>
+        <div class="document-guide" aria-hidden="true">
+          <i class="corner top-left"></i><i class="corner top-right"></i>
+          <i class="corner bottom-left"></i><i class="corner bottom-right"></i>
+          <span class="scan-line"></span>
+        </div>
+        <div id="cameraStatus" class="camera-status">Solicitando acceso a la cámara…</div>
+        <div id="cameraFlash" class="camera-flash" aria-hidden="true"></div>
+      </div>
+
+      <canvas id="cameraCanvas" class="hidden"></canvas>
+      <p class="camera-tip">Mantén el comprobante completo, sin reflejos y con buena iluminación.</p>
+      <div class="camera-controls">
+        <button type="button" id="cameraCancel" class="btn secondary">Cancelar</button>
+        <button type="button" id="cameraSwitch" class="camera-switch-button" aria-label="Cambiar cámara" title="Cambiar cámara">↻</button>
+        <button type="button" id="cameraCapture" class="camera-capture-button" disabled aria-label="Tomar foto"><span></span></button>
+      </div>
+    </div>
+  </div>
 
   <button id="chatLauncher" class="chat-launcher" aria-label="Abrir asistente ContaBot">
     <span class="bot-face">◉‿◉</span>

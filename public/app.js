@@ -3,6 +3,9 @@ const $ = id => document.getElementById(id);
 const titles = {dashboard:"Panel principal",scanner:"Escanear comprobante",documents:"Comprobantes",entries:"Asientos contables",exports:"Exportaciones"};
 let file = null;
 let extractedPdfText = "";
+let cameraStream = null;
+let cameraFacingMode = "environment";
+let cameraOpening = false;
 let records = JSON.parse(localStorage.getItem("contascan_pro_records") || "[]");
 
 document.querySelectorAll(".nav").forEach(btn => btn.addEventListener("click", () => show(btn.dataset.view)));
@@ -20,6 +23,22 @@ function show(id){
 }
 
 $("fileInput").addEventListener("change", e => selectFile(e.target.files[0]));
+$("cameraInput")?.addEventListener("change", e => {
+  selectFile(e.target.files[0]);
+  e.target.value="";
+});
+$("cameraBtn")?.addEventListener("click", openCamera);
+$("cameraClose")?.addEventListener("click", closeCamera);
+$("cameraCancel")?.addEventListener("click", closeCamera);
+$("cameraCapture")?.addEventListener("click", captureCameraPhoto);
+$("cameraSwitch")?.addEventListener("click", switchCamera);
+$("cameraModal")?.addEventListener("click", event => {
+  if(event.target===$("cameraModal")) closeCamera();
+});
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden && cameraStream) closeCamera();
+});
+window.addEventListener("beforeunload", stopCameraStream);
 $("dropzone").addEventListener("dragover", e => {e.preventDefault(); $("dropzone").style.borderColor="#2b72ff"});
 $("dropzone").addEventListener("dragleave", () => $("dropzone").style.borderColor="");
 $("dropzone").addEventListener("drop", e => {e.preventDefault(); selectFile(e.dataTransfer.files[0])});
@@ -32,6 +51,156 @@ $("searchInput").addEventListener("input",renderDocuments);
 $("exportCsv").addEventListener("click",exportCSV);
 $("exportTxt").addEventListener("click",exportTXT);
 ["ruc","series","number"].forEach(id=>$(id).addEventListener("input",checkDuplicate));
+
+function setCameraStatus(message,visible=true){
+  const status=$("cameraStatus");
+  if(!status)return;
+  status.textContent=message;
+  status.classList.toggle("hidden",!visible);
+}
+
+function stopCameraStream(){
+  if(cameraStream){
+    cameraStream.getTracks().forEach(track=>track.stop());
+    cameraStream=null;
+  }
+  const video=$("cameraVideo");
+  if(video) video.srcObject=null;
+}
+
+function showCameraModal(){
+  $("cameraModal")?.classList.remove("hidden");
+  document.body.classList.add("camera-open");
+  $("cameraCapture").disabled=true;
+  setCameraStatus("Solicitando acceso a la cámara…");
+}
+
+function hideCameraModal(){
+  $("cameraModal")?.classList.add("hidden");
+  document.body.classList.remove("camera-open");
+}
+
+async function startCameraStream(){
+  if(cameraOpening)return;
+  cameraOpening=true;
+  stopCameraStream();
+  $("cameraCapture").disabled=true;
+  setCameraStatus("Iniciando cámara…");
+
+  try{
+    const constraints={
+      audio:false,
+      video:{
+        facingMode:{ideal:cameraFacingMode},
+        width:{ideal:1920},
+        height:{ideal:2560}
+      }
+    };
+    cameraStream=await navigator.mediaDevices.getUserMedia(constraints);
+    const video=$("cameraVideo");
+    video.srcObject=cameraStream;
+    await new Promise((resolve,reject)=>{
+      const ready=()=>{cleanup();resolve()};
+      const fail=()=>{cleanup();reject(new Error("No se pudo iniciar la vista previa"))};
+      const cleanup=()=>{
+        video.removeEventListener("loadedmetadata",ready);
+        video.removeEventListener("error",fail);
+      };
+      if(video.readyState>=1)return ready();
+      video.addEventListener("loadedmetadata",ready,{once:true});
+      video.addEventListener("error",fail,{once:true});
+    });
+    await video.play();
+    setCameraStatus("",false);
+    $("cameraCapture").disabled=false;
+
+    try{
+      const devices=await navigator.mediaDevices.enumerateDevices();
+      const cameras=devices.filter(device=>device.kind==="videoinput");
+      $("cameraSwitch")?.classList.toggle("hidden",cameras.length<2);
+    }catch(_error){}
+  }finally{
+    cameraOpening=false;
+  }
+}
+
+async function openCamera(){
+  if(!navigator.mediaDevices?.getUserMedia){
+    toast("Tu navegador abrirá la cámara mediante el selector del celular");
+    $("cameraInput")?.click();
+    return;
+  }
+
+  showCameraModal();
+  try{
+    await startCameraStream();
+  }catch(error){
+    stopCameraStream();
+    hideCameraModal();
+    const denied=error?.name==="NotAllowedError" || error?.name==="PermissionDeniedError";
+    toast(denied
+      ? "Permite el acceso a la cámara en el navegador y vuelve a intentarlo"
+      : "No se pudo abrir la cámara. Puedes seleccionar una foto del celular.");
+  }
+}
+
+function closeCamera(){
+  stopCameraStream();
+  hideCameraModal();
+  setCameraStatus("Solicitando acceso a la cámara…");
+}
+
+async function switchCamera(){
+  if(cameraOpening)return;
+  cameraFacingMode=cameraFacingMode==="environment"?"user":"environment";
+  try{
+    await startCameraStream();
+  }catch(error){
+    cameraFacingMode=cameraFacingMode==="environment"?"user":"environment";
+    toast("No se encontró otra cámara disponible");
+    try{await startCameraStream()}catch(_error){closeCamera()}
+  }
+}
+
+async function captureCameraPhoto(){
+  const video=$("cameraVideo");
+  const canvas=$("cameraCanvas");
+  if(!cameraStream || !video?.videoWidth || !video?.videoHeight){
+    toast("Espera a que la cámara esté lista");
+    return;
+  }
+
+  $("cameraCapture").disabled=true;
+  const flash=$("cameraFlash");
+  flash?.classList.add("active");
+  setTimeout(()=>flash?.classList.remove("active"),180);
+
+  canvas.width=video.videoWidth;
+  canvas.height=video.videoHeight;
+  const context=canvas.getContext("2d",{willReadFrequently:true});
+  context.drawImage(video,0,0,canvas.width,canvas.height);
+
+  try{
+    const blob=await new Promise((resolve,reject)=>{
+      canvas.toBlob(
+        value=>value?resolve(value):reject(new Error("No se pudo capturar la foto")),
+        "image/jpeg",
+        .94
+      );
+    });
+    const capturedFile=new File(
+      [blob],
+      `comprobante-${new Date().toISOString().replace(/[:.]/g,"-")}.jpg`,
+      {type:"image/jpeg",lastModified:Date.now()}
+    );
+    closeCamera();
+    await selectFile(capturedFile);
+    toast("Foto capturada. Pulsa ‘Leer con IA’ para procesarla.");
+  }catch(error){
+    $("cameraCapture").disabled=false;
+    toast(error.message||"No se pudo tomar la foto");
+  }
+}
 
 async function selectFile(selected){
   if(!selected) return;
@@ -219,7 +388,7 @@ function exportTXT(){
   download(text,"contascan_asientos.txt","text/plain;charset=utf-8");
 }
 function download(content,name,type){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([content],{type}));a.download=name;a.click();URL.revokeObjectURL(a.href)}
-function resetScanner(){file=null;extractedPdfText="";$("fileInput").value="";$("selectedFile").classList.add("hidden");$("scanBtn").disabled=true;$("resultCard").classList.add("hidden");$("progressBox").classList.add("hidden");$("previewArea").innerHTML='<div>▧</div><p>La imagen aparecerá aquí.</p>';document.querySelectorAll("#resultCard input").forEach(i=>i.value="");$("duplicateAlert").classList.add("hidden")}
+function resetScanner(){closeCamera();file=null;extractedPdfText="";$("fileInput").value="";if($("cameraInput"))$("cameraInput").value="";$("selectedFile").classList.add("hidden");$("scanBtn").disabled=true;$("resultCard").classList.add("hidden");$("progressBox").classList.add("hidden");$("previewArea").innerHTML='<div>▧</div><p>La imagen aparecerá aquí.</p>';document.querySelectorAll("#resultCard input").forEach(i=>i.value="");$("duplicateAlert").classList.add("hidden")}
 function setProgress(v,t){$("progressBar").style.width=v+"%";$("progressText").textContent=t}
 function money(n,c){return new Intl.NumberFormat("es-PE",{style:"currency",currency:c||"PEN"}).format(Number(n||0))}
 function datePE(d){return new Date(d+"T00:00:00").toLocaleDateString("es-PE")}
