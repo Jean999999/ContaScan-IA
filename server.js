@@ -16,7 +16,7 @@ const upload = multer({
   fileFilter: (_req, file, cb) => {
     const allowed = ["image/jpeg", "image/png", "image/webp"];
     if (!allowed.includes(file.mimetype)) {
-      return cb(new Error("Solo se aceptan imágenes JPG, PNG o WEBP en esta versión."));
+      return cb(new Error("El servidor recibe imágenes JPG, PNG o WEBP. Los PDF se convierten automáticamente en el navegador."));
     }
     cb(null, true);
   }
@@ -33,80 +33,51 @@ function normalizeMoney(value) {
 }
 
 function parsePeruvianReceipt(text) {
-  const clean = text.replace(/\r/g, "");
-  const upper = clean.toUpperCase();
-  const oneLine = upper.replace(/\s+/g, " ");
+  const clean = String(text || "").replace(/\r/g, "");
+  const oneLine = clean.toUpperCase().replace(/[|]/g, " ").replace(/\s+/g, " ").trim();
 
-  const rucMatches = [...oneLine.matchAll(/\b(?:10|15|17|20)\d{9}\b/g)].map(m => m[0]);
-  const dateMatch =
-    oneLine.match(/\b(\d{2})[\/.-](\d{2})[\/.-](\d{4})\b/) ||
-    oneLine.match(/\b(\d{4})[\/.-](\d{2})[\/.-](\d{2})\b/);
+  const rucCandidates = [...oneLine.matchAll(/\b(?:10|15|17|20)\s*\d(?:[\s.-]*\d){8,9}\b/g)]
+    .map(m => m[0].replace(/\D/g, "")).filter(x => x.length === 11);
 
-  const docMatch =
-    oneLine.match(/\b([FBE]\d{3})\s*[-–]\s*(\d{1,8})\b/) ||
-    oneLine.match(/\b([FBE]\d{3})\s+(\d{1,8})\b/);
+  const dateMatch = oneLine.match(/\b(\d{2})[\/.-](\d{2})[\/.-](\d{4})\b/) ||
+                    oneLine.match(/\b(\d{4})[\/.-](\d{2})[\/.-](\d{2})\b/);
 
-  const totalMatches = [
-    ...oneLine.matchAll(/(?:IMPORTE\s+TOTAL|TOTAL\s+A\s+PAGAR|TOTAL)[^\d]{0,20}(S\/\.?\s*)?(\d{1,7}[.,]\d{2})/g)
-  ];
-  const igvMatches = [
-    ...oneLine.matchAll(/(?:I\.?G\.?V\.?|IGV\s*18%)[^\d]{0,20}(S\/\.?\s*)?(\d{1,7}[.,]\d{2})/g)
-  ];
-  const subtotalMatches = [
-    ...oneLine.matchAll(/(?:OP\.?\s*GRAVADA|VALOR\s+VENTA|SUBTOTAL|BASE\s+IMPONIBLE)[^\d]{0,20}(S\/\.?\s*)?(\d{1,7}[.,]\d{2})/g)
-  ];
+  const docMatch = oneLine.match(/\b([FBE][A-Z0-9]{3})\s*[-–—]\s*(\d{1,10})\b/) ||
+                   oneLine.match(/\b([FBE][A-Z0-9]{3})\s+(\d{1,10})\b/);
 
-  const total = totalMatches.length ? normalizeMoney(totalMatches.at(-1)[2]) : null;
-  const igv = igvMatches.length ? normalizeMoney(igvMatches.at(-1)[2]) : null;
-  let subtotal = subtotalMatches.length ? normalizeMoney(subtotalMatches.at(-1)[2]) : null;
-
-  if (total !== null && subtotal === null && igv !== null) subtotal = Number((total - igv).toFixed(2));
-  if (total !== null && igv === null) {
-    const estimatedIgv = Number((total - total / 1.18).toFixed(2));
-    subtotal = subtotal ?? Number((total - estimatedIgv).toFixed(2));
+  function lastAmount(patterns) {
+    const vals=[];
+    for (const p of patterns) for (const m of oneLine.matchAll(p)) {
+      const n=normalizeMoney(m[m.length-1]); if(n!==null) vals.push(n);
+    }
+    return vals.length ? vals.at(-1) : null;
   }
 
-  const lines = clean.split("\n").map(x => x.trim()).filter(Boolean);
-  const businessName =
-    lines.find(line =>
-      line.length >= 6 &&
-      line.length <= 80 &&
-      /[A-Za-zÁÉÍÓÚÑáéíóúñ]{4}/.test(line) &&
-      !/FACTURA|BOLETA|RUC|SUNAT|TOTAL|IGV|CLIENTE|DIRECCI[ÓO]N/i.test(line)
-    ) || "";
+  const total=lastAmount([/(?:IMPORTE\s+TOTAL|TOTAL\s+A\s+PAGAR|TOTAL\s+VENTA|TOTAL)[^\d]{0,25}(?:S\/.?|PEN|US\$|\$)?\s*(\d{1,9}(?:[.,]\d{2}))/g]);
+  const igv=lastAmount([/(?:I\.?\s*G\.?\s*V\.?|IGV\s*18\s*%|IMPUESTO\s+GENERAL\s+A\s+LAS\s+VENTAS)[^\d]{0,25}(?:S\/.?|PEN|US\$|\$)?\s*(\d{1,9}(?:[.,]\d{2}))/g]);
+  let subtotal=lastAmount([/(?:OP\.?\s*GRAVADA|OPERACI[ÓO]N\s+GRAVADA|VALOR\s+DE\s+VENTA|SUB\s*TOTAL|SUBTOTAL|BASE\s+IMPONIBLE)[^\d]{0,25}(?:S\/.?|PEN|US\$|\$)?\s*(\d{1,9}(?:[.,]\d{2}))/g]);
+  if(total!==null && subtotal===null && igv!==null) subtotal=Number((total-igv).toFixed(2));
 
-  let issueDate = "";
-  if (dateMatch) {
-    if (dateMatch[1].length === 4) issueDate = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
-    else issueDate = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`;
-  }
+  const lines=clean.split("\n").map(x=>x.replace(/\s+/g," ").trim()).filter(Boolean);
+  const excluded=/FACTURA|BOLETA|RECIBO|RUC|SUNAT|TOTAL|IGV|CLIENTE|DIRECCI[ÓO]N|FECHA|SERIE|N[ÚU]MERO|DESCRIPCI[ÓO]N/i;
+  const suffix=/\b(S\.?A\.?C\.?|S\.?A\.?|E\.?I\.?R\.?L\.?|S\.?R\.?L\.?)\b/i;
+  const businessName=lines.find(x=>x.length>=5&&x.length<=100&&suffix.test(x)&&!excluded.test(x)) ||
+                     lines.find(x=>x.length>=6&&x.length<=80&&/[A-Za-zÁÉÍÓÚÑáéíóúñ]{4}/.test(x)&&!excluded.test(x)) || "";
 
-  let type = "Otro";
-  if (oneLine.includes("FACTURA")) type = "Factura";
-  else if (oneLine.includes("BOLETA")) type = "Boleta de venta";
-  else if (oneLine.includes("RECIBO POR HONORARIOS")) type = "Recibo por honorarios";
+  let issueDate="";
+  if(dateMatch) issueDate=dateMatch[1].length===4 ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`;
 
-  const confidenceItems = [
-    rucMatches[0],
-    docMatch?.[1],
-    docMatch?.[2],
-    issueDate,
-    total
-  ].filter(Boolean).length;
+  let type="Otro";
+  if(/NOTA\s+DE\s+CR[ÉE]DITO/.test(oneLine)) type="Nota de crédito";
+  else if(/NOTA\s+DE\s+D[ÉE]BITO/.test(oneLine)) type="Nota de débito";
+  else if(/RECIBO\s+POR\s+HONORARIOS/.test(oneLine)) type="Recibo por honorarios";
+  else if(/FACTURA/.test(oneLine)) type="Factura";
+  else if(/BOLETA/.test(oneLine)) type="Boleta de venta";
 
-  return {
-    type,
-    ruc: rucMatches[0] || "",
-    businessName,
-    issueDate,
-    series: docMatch?.[1] || "",
-    number: docMatch?.[2]?.padStart(8, "0") || "",
-    subtotal: subtotal ?? "",
-    igv: igv ?? "",
-    total: total ?? "",
-    currency: oneLine.includes("US$") || oneLine.includes("DÓLAR") ? "USD" : "PEN",
-    confidence: Math.min(96, 45 + confidenceItems * 10)
-  };
+  const series=docMatch?.[1]||"";
+  const number=docMatch?.[2]||"";
+  const found=[rucCandidates[0],series,number,issueDate,total,businessName].filter(Boolean).length;
+  return {type,ruc:rucCandidates[0]||"",businessName,issueDate,series,number:number?String(number).padStart(8,"0"):"",subtotal:subtotal??"",igv:igv??"",total:total??"",currency:/US\$|USD|D[ÓO]LAR/.test(oneLine)?"USD":"PEN",confidence:Math.min(98,38+found*10)};
 }
 
 app.post("/api/scan", upload.single("document"), async (req, res) => {
@@ -115,6 +86,7 @@ app.post("/api/scan", upload.single("document"), async (req, res) => {
   let worker;
   try {
     worker = await createWorker("spa");
+    await worker.setParameters({ tessedit_pageseg_mode: "6", preserve_interword_spaces: "1", user_defined_dpi: "300" });
     const result = await worker.recognize(req.file.path);
     const parsed = parsePeruvianReceipt(result.data.text);
 

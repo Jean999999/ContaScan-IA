@@ -109,11 +109,11 @@
           <p>Usa una imagen clara y completa para mejorar la lectura.</p>
 
           <label class="dropzone" id="dropzone">
-            <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp">
+            <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp,application/pdf">
             <div class="upload-icon">↑</div>
             <strong>Arrastra tu archivo aquí</strong>
             <span>o haz clic para seleccionarlo</span>
-            <small>JPG, PNG o WEBP · Máximo 12 MB</small>
+            <small>PDF, JPG, PNG o WEBP · Máximo 12 MB</small>
           </label>
 
           <div id="selectedFile" class="selected-file hidden">
@@ -145,7 +145,7 @@
         </div>
 
         <div class="form-grid">
-          <label>Tipo de comprobante<select id="type"><option>Factura</option><option>Boleta de venta</option><option>Recibo por honorarios</option><option>Otro</option></select></label>
+          <label>Tipo de comprobante<select id="type"><option>Factura</option><option>Boleta de venta</option><option>Recibo por honorarios</option><option>Nota de crédito</option><option>Nota de débito</option><option>Otro</option></select></label>
           <label>RUC del emisor<input id="ruc" maxlength="11"></label>
           <label>Razón social<input id="businessName"></label>
           <label>Fecha de emisión<input id="issueDate" type="date"></label>
@@ -210,6 +210,8 @@
   </main>
 
   <div id="toast" class="toast"></div>
-  <script src="/app.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>if(window.pdfjsLib){pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"}</script>
+<script src="/app.js"></script>
 </body>
 </html>

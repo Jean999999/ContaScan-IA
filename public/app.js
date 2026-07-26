@@ -32,40 +32,55 @@ $("exportCsv").addEventListener("click",exportCSV);
 $("exportTxt").addEventListener("click",exportTXT);
 ["ruc","series","number"].forEach(id=>$(id).addEventListener("input",checkDuplicate));
 
-function selectFile(selected){
+async function selectFile(selected){
   if(!selected) return;
-  if(!["image/jpeg","image/png","image/webp"].includes(selected.type)){toast("Usa una imagen JPG, PNG o WEBP");return}
+  const allowed=["image/jpeg","image/png","image/webp","application/pdf"];
+  if(!allowed.includes(selected.type)){toast("Usa PDF, JPG, PNG o WEBP");return}
   if(selected.size>12*1024*1024){toast("El archivo supera los 12 MB");return}
   file=selected;
   $("selectedName").textContent=selected.name;
   $("selectedSize").textContent=(selected.size/1024/1024).toFixed(2)+" MB";
-  $("selectedFile").classList.remove("hidden");
-  $("scanBtn").disabled=false;
-  const img=document.createElement("img");
-  img.src=URL.createObjectURL(selected);
-  $("previewArea").innerHTML="";
-  $("previewArea").appendChild(img);
+  $("selectedFile").classList.remove("hidden"); $("scanBtn").disabled=false;
+  try{
+    const blob=selected.type==="application/pdf"?await pdfFirstPageToBlob(selected,1.4):selected;
+    const img=document.createElement("img"); img.src=URL.createObjectURL(blob);
+    $("previewArea").innerHTML=""; $("previewArea").appendChild(img);
+  }catch(e){toast("No se pudo mostrar la vista previa")}
+}
+async function pdfFirstPageToBlob(pdfFile,scale=2.8){
+  if(!window.pdfjsLib) throw new Error("No se cargó el lector PDF");
+  const pdf=await pdfjsLib.getDocument({data:await pdfFile.arrayBuffer()}).promise;
+  const page=await pdf.getPage(1); const viewport=page.getViewport({scale});
+  const canvas=document.createElement("canvas"); canvas.width=Math.ceil(viewport.width); canvas.height=Math.ceil(viewport.height);
+  await page.render({canvasContext:canvas.getContext("2d",{willReadFrequently:true}),viewport}).promise;
+  return preprocessCanvasToBlob(canvas);
+}
+async function imageToProcessedBlob(imageFile){
+  const bitmap=await createImageBitmap(imageFile); const scale=Math.max(1,Math.min(3,2400/bitmap.width));
+  const canvas=document.createElement("canvas"); canvas.width=Math.round(bitmap.width*scale); canvas.height=Math.round(bitmap.height*scale);
+  canvas.getContext("2d",{willReadFrequently:true}).drawImage(bitmap,0,0,canvas.width,canvas.height);
+  return preprocessCanvasToBlob(canvas);
+}
+async function preprocessCanvasToBlob(canvas){
+  const ctx=canvas.getContext("2d",{willReadFrequently:true}); const im=ctx.getImageData(0,0,canvas.width,canvas.height); const d=im.data;
+  for(let i=0;i<d.length;i+=4){let g=.299*d[i]+.587*d[i+1]+.114*d[i+2];g=(g-128)*1.45+128;g=Math.max(0,Math.min(255,g));d[i]=d[i+1]=d[i+2]=g}
+  ctx.putImageData(im,0,0);
+  return new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error("No se pudo preparar el documento")),"image/png",1));
 }
 
 async function scanFile(){
-  if(!file) return;
-  $("progressBox").classList.remove("hidden");
-  $("resultCard").classList.add("hidden");
-  setProgress(18,"Subiendo imagen...");
-  const form=new FormData();
-  form.append("document",file);
+  if(!file) return; $("progressBox").classList.remove("hidden"); $("resultCard").classList.add("hidden"); $("scanBtn").disabled=true;
   try{
-    setProgress(42,"La IA está leyendo el comprobante...");
-    const response=await fetch("/api/scan",{method:"POST",body:form});
-    const data=await response.json();
+    setProgress(15,"Preparando el documento...");
+    const blob=file.type==="application/pdf"?await pdfFirstPageToBlob(file,2.8):await imageToProcessedBlob(file);
+    const form=new FormData(); form.append("document",blob,"documento.png");
+    setProgress(42,"La IA está leyendo el documento...");
+    const response=await fetch("/api/scan",{method:"POST",body:form}); const data=await response.json();
     if(!response.ok) throw new Error(data.error||"No se pudo procesar");
-    setProgress(88,"Organizando los datos detectados...");
-    fill(data.parsed);
+    setProgress(92,"Organizando los datos..."); fill(data.parsed);
     $("confidenceBadge").textContent=`OCR ${data.ocrConfidence}% · extracción ${data.parsed.confidence}%`;
-    $("resultCard").classList.remove("hidden");
-    setProgress(100,"Lectura completada");
-    toast("Comprobante leído correctamente");
-  }catch(e){toast(e.message);setProgress(0,"No se pudo completar la lectura")}
+    $("resultCard").classList.remove("hidden"); setProgress(100,"Lectura completada"); toast("Documento leído. Revisa los campos.");
+  }catch(e){toast(e.message);setProgress(0,"No se pudo completar la lectura")}finally{$("scanBtn").disabled=false}
 }
 
 function fill(d){

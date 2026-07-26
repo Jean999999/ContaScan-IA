@@ -32,3 +32,6 @@ Aplicación web MVP basada en el proyecto académico ContaScan IA.
 - La validación automática con SUNAT no está implementada porque requiere una integración autorizada.
 - Los asientos son referenciales y deben ser revisados por un contador.
 - Los datos se guardan localmente en el navegador.
+
+## Versión PDF
+Acepta PDF, JPG, PNG y WEBP. Los PDF se convierten en el navegador y se procesa la primera página.
