@@ -1,108 +1,59 @@
-# ContaScan IA Pro
+# ContaScan IA — versión gratuita con Gemini
 
-Aplicación web MVP basada en el proyecto académico ContaScan IA.
+Esta versión reemplaza OpenAI por **Google Gemini API**.
 
-## Qué incluye
-- Interfaz moderna y adaptable a celular.
-- Lectura OCR con inteligencia artificial mediante Tesseract.js.
-- Extracción automática de RUC, fecha, serie, número, base imponible, IGV y total.
-- Detección de comprobantes duplicados.
-- Generación de asiento contable referencial con cuentas del PCGE.
-- Registro local en el navegador.
-- Exportación a CSV y TXT.
-- Acceso directo a consulta RUC de SUNAT.
+## Funciones
+- Lee facturas y boletas en imagen o PDF.
+- Extrae RUC, razón social, fecha, serie, número, base imponible, IGV y total.
+- Completa automáticamente el formulario.
+- Guarda el comprobante en el navegador.
+- Genera un asiento contable referencial.
+- Incluye el asistente flotante ContaBot.
+- Usa Tesseract como respaldo si Gemini no está configurado o no responde.
 
-## Requisitos
-- Node.js 18 o superior.
-- Conexión a internet durante la primera instalación de dependencias.
+## Configuración en Render
 
-## Instalación
-1. Descomprime la carpeta.
-2. Abre una terminal dentro de la carpeta.
-3. Ejecuta:
-   npm install
-4. Luego ejecuta:
-   npm start
-5. Abre en el navegador:
-   http://localhost:3000
+Agrega estas variables en **Environment**:
 
-## Importante
-- Esta versión procesa imágenes JPG, PNG o WEBP.
-- El OCR es real, pero la exactitud depende de la calidad de la imagen.
-- La validación automática con SUNAT no está implementada porque requiere una integración autorizada.
-- Los asientos son referenciales y deben ser revisados por un contador.
-- Los datos se guardan localmente en el navegador.
+```text
+GEMINI_API_KEY=tu_clave_de_Google_AI_Studio
+GEMINI_MODEL=gemini-2.5-flash
+```
 
-## Versión PDF
-Acepta PDF, JPG, PNG y WEBP. Los PDF se convierten en el navegador y se procesa la primera página.
+No agregues `OPENAI_API_KEY`: esta versión ya no usa OpenAI.
 
+## Obtener la clave
 
-## OCR mejorado
-Esta versión incorpora:
-- Recorte automático de márgenes blancos.
-- Ampliación del comprobante antes del OCR.
-- Tres variantes de imagen: normalizada, enfocada y blanco/negro.
-- Varias pasadas de OCR con diferentes modos de lectura.
-- Extracción directa del texto cuando el PDF es digital.
-- Reconocimiento más tolerante de RUC, serie, número, fecha, base imponible, IGV y total.
+1. Entra a Google AI Studio con tu cuenta.
+2. Abre la opción para obtener una API key.
+3. Crea una clave en un proyecto.
+4. Copia la clave.
+5. Pégala en Render como `GEMINI_API_KEY`.
+6. No publiques la clave en GitHub.
 
-### Recomendaciones
-- El comprobante debe ocupar la mayor parte de la imagen.
-- Evita capturas donde el documento se vea muy pequeño.
-- Para PDF escaneado, la primera página debe contener el comprobante.
-- La información detectada debe revisarse antes de guardarse.
+## Prueba
 
+Cuando la clave esté configurada, la aplicación mostrará:
 
-# Versión IA real: requisito fundamental
+```text
+Gemini IA activa
+Lectura gratuita configurada
+```
 
-Esta versión usa un modelo visual para leer el comprobante completo y devolver datos estructurados:
-- Tipo de comprobante
-- RUC
-- Razón social
-- Fecha
-- Serie y número
-- Base imponible
-- IGV
-- Total
-- Moneda
-- Porcentaje de confianza
+Después:
+1. Sube una factura o boleta.
+2. Presiona el botón de lectura.
+3. Revisa los datos detectados.
+4. Presiona **Guardar y generar asiento**.
+5. Abre ContaBot desde el pequeño robot ubicado en la esquina inferior derecha.
 
-Después llena automáticamente el formulario. Al pulsar **Guardar y generar asiento**:
-- guarda el comprobante en el navegador;
-- lo muestra en el historial;
-- detecta duplicados;
-- genera el asiento contable referencial;
-- permite exportar CSV y TXT.
+## Sobre el nivel gratuito
 
-## Configuración obligatoria en Render
+La aplicación utiliza el nivel gratuito disponible para determinados modelos de Gemini.
+La cuota no es ilimitada y Google puede cambiar sus límites. Para un proyecto académico
+y una cantidad moderada de pruebas normalmente es suficiente.
 
-Sin esta configuración la aplicación volverá al OCR básico.
+## Guardado
 
-1. Abre el servicio `contascan-ia` en Render.
-2. Entra a **Environment**.
-3. Agrega:
-   - Key: `OPENAI_API_KEY`
-   - Value: tu clave de API
-4. Opcional:
-   - Key: `OPENAI_MODEL`
-   - Value: `gpt-4.1-mini`
-5. Guarda los cambios y espera el nuevo despliegue.
-
-## Seguridad
-Nunca coloques la clave en `public/app.js`, GitHub ni archivos visibles. Solo debe estar en las variables de entorno de Render.
-
-## Guardado actual
-Los registros se guardan con `localStorage`, por lo que quedan almacenados en el navegador y dispositivo que los registró. Para compartir un historial entre varios usuarios se necesita una base de datos en la nube; eso es una mejora posterior y no impide demostrar el flujo central del proyecto.
-
-
-# ContaBot
-Se añadió un asistente flotante con apariencia de pequeño robot.
-
-Funciones:
-- Responde preguntas sobre el uso de ContaScan IA.
-- Explica RUC, IGV, base imponible, duplicados y exportaciones.
-- Puede revisar los campos visibles del comprobante abierto.
-- Explica el asiento contable de manera orientativa.
-- Usa la misma variable `OPENAI_API_KEY` configurada para la lectura visual.
-
-El asistente no sustituye la revisión de un contador ni realiza validaciones SUNAT por sí solo.
+Los comprobantes se guardan con `localStorage`, es decir, en el navegador del dispositivo.
+No se comparte la información entre diferentes computadoras.

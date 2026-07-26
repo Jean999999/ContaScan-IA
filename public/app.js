@@ -234,11 +234,11 @@ async function updateEngineStatus(){
     const strong=card.querySelector("strong");
     const small=card.querySelector("small");
     if(data.visionAI){
-      strong.textContent="IA visual activa";
-      small.textContent="Extracción inteligente configurada";
+      strong.textContent="Gemini IA activa";
+      small.textContent="Lectura gratuita configurada";
     }else{
       strong.textContent="OCR básico activo";
-      small.textContent="Configura OPENAI_API_KEY en Render";
+      small.textContent="Configura GEMINI_API_KEY en Render";
     }
   }catch(_e){}
 }
